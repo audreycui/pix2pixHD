@@ -67,9 +67,17 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
         save_fake = total_steps % opt.display_freq == display_delta
 
         ############## Forward Pass ######################
-        losses, generated = model(Variable(data['label']), Variable(data['inst']), 
-            Variable(data['image']), Variable(data['feat']), infer=save_fake)
-
+        #losses, generated = model(Variable(data['label']), Variable(data['inst']), 
+        #    Variable(data['image']), Variable(data['feat']), infer=save_fake)
+#         print('shape of img', data['label'].shape)
+#         print('shape of target', data['image'].shape)
+#         print('shape of inst', data['inst'].shape)
+#         print('shape of feat', data['feat'].shape)
+#         print('img type', data['image'].dtype)
+        
+        losses, generated = model(data['label'], data['inst'], 
+            data['image'], data['feat'], infer=save_fake, amount=data['frac'])
+        
         # sum per device losses
         losses = [ torch.mean(x) if not isinstance(x, int) else x for x in losses ]
         loss_dict = dict(zip(model.module.loss_names, losses))

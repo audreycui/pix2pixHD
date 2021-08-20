@@ -12,6 +12,7 @@ from pbw_utils import zdataset, show, labwidget, paintwidget, renormalize, netho
 from pbw_utils.stylegan2 import load_seq_stylegan
 
 from PIL import Image
+import random
 
 def CreateDataset(opt):
     dataset = None
@@ -82,14 +83,17 @@ class StyleGANDataset(Dataset):
     def __getitem__(self, index):
         z = torch.randn(self.batch_size, 512, device='cuda')
         original = self.model(z)[0]
-        adjusted = self.get_lit_scene(z, self.frac, self.light_layer, self.light_unit)[0]
-        data = {'label': original, 'image': adjusted, 'inst': 0, 'feat': 0, 'path': f'bedroom_{self.num}'}
+        amount = random.randint(0, 100)
+        frac = ((float(amount) * 2 - 100) / 100.0)
+        
+        adjusted = self.get_lit_scene(z, frac, self.light_layer, self.light_unit)[0]
+        data = {'label': original, 'image': adjusted, 'inst': 0, 'feat': 0, 'path': f'bedroom_{self.num}', 'frac': frac}
         self.num += 1
         return data
     
-    def get_lit_scene(self, z, amount, layername, unitnum):
+    def get_lit_scene(self, z, frac, layername, unitnum):
         def change_light(output):
-            output.style[:, int(unitnum)] = 10 * amount
+            output.style[:, int(unitnum)] = 10 * frac
             return output
         with nethook.Trace(self.model, f'{layername}.sconv.mconv.modulation', edit_output=change_light):
             return self.model(z)

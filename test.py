@@ -19,7 +19,9 @@ data_loader = CreateDataLoader(opt)
 dataset = data_loader.load_data()
 visualizer = Visualizer(opt)
 # create website
-web_dir = os.path.join(opt.results_dir, opt.name, '%s_%s' % (opt.phase, opt.which_epoch))
+
+generated = 'generated' if opt.generated else 'real'
+web_dir = os.path.join(opt.results_dir, opt.name, '%s_%s_%s' % (opt.phase, opt.which_epoch, generated))
 webpage = html.HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.which_epoch))
 
 # test
@@ -51,17 +53,19 @@ for i, data in enumerate(dataset):
                           opt.export_onnx, verbose=True)
         exit(0)
     minibatch = 1 
+    
+    print("data shape", data['label'].shape)
     if opt.engine:
         generated = run_trt_engine(opt.engine, minibatch, [data['label'], data['inst']])
     elif opt.onnx:
         generated = run_onnx(opt.onnx, opt.data_type, minibatch, [data['label'], data['inst']])
     else:        
         generated = model.inference(data['label'], data['inst'], data['image'])
-        
+    #print('processed', util.tensor2im(generated.data[0]))
     visuals = OrderedDict([('input_label', util.tensor2label(data['label'][0], opt.label_nc)),
                            ('synthesized_image', util.tensor2im(generated.data[0]))])
     img_path = data['path']
     print('process image... %s' % img_path)
-    visualizer.save_images(webpage, visuals, img_path)
+    visualizer.save_images(webpage, visuals, img_path, idx=i)
 
 webpage.save()
