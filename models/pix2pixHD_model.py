@@ -117,6 +117,8 @@ class Pix2PixHDModel(BaseModel):
             oneHot_size = (size[0], self.opt.label_nc, size[2], size[3])
             input_label = torch.cuda.FloatTensor(torch.Size(oneHot_size)).zero_()
             input_label = input_label.scatter_(1, label_map.data.long().cuda(), 1.0)
+            #input_label = torch.Tensor(torch.Size(oneHot_size)).zero_().cpu()
+            #input_label = input_label.scatter_(1, label_map.data.long(), 1.0)
             if self.opt.data_type == 16:
                 input_label = input_label.half()
 
@@ -148,8 +150,9 @@ class Pix2PixHDModel(BaseModel):
             return self.netD.forward(fake_query)
         else:
             return self.netD.forward(input_concat)
-
-    def forward(self, label, inst, image, feat, infer=False):
+   
+    
+    def forward(self, label, inst, image, feat, infer=False, amount=0):
         # Encode Inputs
         input_label, inst_map, real_image, feat_map = self.encode_input(label, inst, image, feat)  
 
@@ -160,7 +163,7 @@ class Pix2PixHDModel(BaseModel):
             input_concat = torch.cat((input_label, feat_map), dim=1)                        
         else:
             input_concat = input_label
-        fake_image = self.netG.forward(input_concat)
+        fake_image = self.netG.forward(input_concat, amount)
 
         # Fake Detection and Loss
         pred_fake_pool = self.discriminate(input_label, fake_image, use_pool=True)
