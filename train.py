@@ -13,6 +13,7 @@ from data.data_loader import CreateDataLoader
 from models.models import create_model
 import util.util as util
 from util.visualizer import Visualizer
+from pbw_utils import nethook 
 
 opt = TrainOptions().parse()
 iter_path = os.path.join(opt.checkpoints_dir, opt.name, 'iter.txt')
@@ -75,9 +76,20 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
 #         print('shape of feat', data['feat'].shape)
 #         print('img type', data['image'].dtype)
         
+#         if opt.debug: 
+#             layer_trace = 'module.netG.output_block'
+#             print('MODEL', model)
+#             with nethook.Trace(model, layer_trace) as ret: 
+#                 losses, generated = model(data['label'], data['inst'], 
+#                     data['image'], data['feat'], infer=save_fake, amount=data['frac'])
+#                 print('TRAINING layer trace output', ret.output[:, 0, :4, :4])
+#             #print('generated data', generated.data[:, 0, :4, :4])
+
+#             generated_inf = model.module.inference(data['label'], data['inst'], data['image'], amount=[0])
+#         else: 
         losses, generated = model(data['label'], data['inst'], 
-            data['image'], data['feat'], infer=save_fake, amount=data['frac'])
-        
+                data['image'], data['feat'], infer=save_fake, amount=data['frac'])
+
         # sum per device losses
         losses = [ torch.mean(x) if not isinstance(x, int) else x for x in losses ]
         loss_dict = dict(zip(model.module.loss_names, losses))
@@ -110,14 +122,15 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
             t = (time.time() - iter_start_time) / opt.print_freq
             visualizer.print_current_errors(epoch, epoch_iter, errors, t)
             visualizer.plot_current_errors(errors, total_steps)
-            #call(["nvidia-smi", "--format=csv", "--query-gpu=memory.used,memory.free"]) 
+            #call(["nvidia-smi", "--format=csv", "--query-gpu=memory.used,memory.free"])
+            #print('generated data', generated.data[:, 0, :4, :4])
 
         ### display output images
         if save_fake:
-            visuals = OrderedDict([('input_label', util.tensor2label(data['label'][0], opt.label_nc)),
-                                   ('synthesized_image', util.tensor2im(generated.data[0])),
-                                   ('real_image', util.tensor2im(data['image'][0]))])
-            visualizer.display_current_results(visuals, epoch, total_steps)
+            visuals = OrderedDict([('input_image', util.tensor2label(data['label'][0], opt.label_nc)),
+                                   ('output_image', util.tensor2im(generated.data[0])),
+                                   ('stylespace_target', util.tensor2im(data['image'][0]))])
+            visualizer.display_current_results(visuals, epoch, total_steps, data['frac'][0])
 
         ### save latest model
         if total_steps % opt.save_latest_freq == save_delta:

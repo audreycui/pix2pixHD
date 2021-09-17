@@ -1,6 +1,7 @@
 
 def CreateDataLoader(opt):
     from data.custom_dataset_data_loader import CustomDatasetDataLoader, StyleGANDatasetDataLoader
+    print('opt.generated', opt.generated)
     if opt.generated: 
         data_loader = StyleGANDatasetDataLoader()
     else: 

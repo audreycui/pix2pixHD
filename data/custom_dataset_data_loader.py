@@ -3,6 +3,7 @@ from data.base_data_loader import BaseDataLoader
 import torch 
 
 import os, sys, inspect
+from os import path
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
@@ -49,7 +50,7 @@ class StyleGANDatasetDataLoader(BaseDataLoader):
     def initialize(self, opt): 
         BaseDataLoader.initialize(self, opt)
         self.dataset = StyleGANDataset()
-        self.dataloader = DataLoader(
+        self.dataloader = DataLoader( 
             self.dataset, 
             batch_size=opt.batchSize,
             shuffle=not opt.serial_batches,
@@ -65,7 +66,8 @@ class StyleGANDatasetDataLoader(BaseDataLoader):
 class StyleGANDataset(Dataset): 
     def __init__(self, 
                  dset='bedroom', 
-                 batch_size = 1
+                 batch_size = 1,
+                 debug = False
                 ): 
         self.model = load_seq_stylegan('bedroom', mconv='seq', truncation=0.90)
         self.batch_size = batch_size
@@ -76,17 +78,35 @@ class StyleGANDataset(Dataset):
         self.color = torch.tensor([1.0, 1.0, 1.0]).float().cuda()[:,None,None]
         self.frac = ((float(100) * 2 - 100) / 100.0)
         self.num = 0
+        
+        self.debug = debug
+        if self.debug: 
+            if path.exists('fixed_z.pt'): 
+                self.fixed_z = torch.load('fixed_z.pt')
+            else: 
+                self.fixed_z = torch.randn(self.batch_size, 512, device='cuda')
+                torch.save(self.fixed_z, 'fixed_z.pt') 
+                #save fixed z 
 
     def __len__(self):
         return 5000
 
     def __getitem__(self, index):
+        
         z = torch.randn(self.batch_size, 512, device='cuda')
+        
+        if self.debug: 
+            z = self.fixed_z
+            
         original = self.model(z)[0]
         amount = random.randint(0, 100)
         frac = ((float(amount) * 2 - 100) / 100.0)
-        
         adjusted = self.get_lit_scene(z, frac, self.light_layer, self.light_unit)[0]
+        
+        if self.debug: 
+            adjusted = original
+            frac = 0
+            
         data = {'label': original, 'image': adjusted, 'inst': 0, 'feat': 0, 'path': f'bedroom_{self.num}', 'frac': frac}
         self.num += 1
         return data

@@ -9,6 +9,7 @@ from util.visualizer import Visualizer
 from util import html
 import torch
 
+import random 
 opt = TestOptions().parse(save=False)
 opt.nThreads = 1   # test code only supports nThreads = 1
 opt.batchSize = 1  # test code only supports batchSize = 1
@@ -54,18 +55,33 @@ for i, data in enumerate(dataset):
         exit(0)
     minibatch = 1 
     
-    print("data shape", data['label'].shape)
+    #print("data shape", data['label'].shape)
+    #print('data label', data['label'][:, 0, :4, :4])
+         
+                           
     if opt.engine:
         generated = run_trt_engine(opt.engine, minibatch, [data['label'], data['inst']])
     elif opt.onnx:
-        generated = run_onnx(opt.onnx, opt.data_type, minibatch, [data['label'], data['inst']])
-    else:        
-        generated = model.inference(data['label'], data['inst'], data['image'])
+        generated = run_onnx(opt.onnx, opt.data_type, minibatch, [data['label'], data['inst']]) 
+    elif not opt.generated: 
+        amount = random.randint(0, 100)
+        frac = [((float(amount) * 2 - 100) / 100.0)]
+        generated = model.inference(data['label'], data['inst'], data['image'], amount=frac)
+        visuals = OrderedDict([('input_image~!!!!', util.tensor2im(data['label'][0])),
+                               ('output_image!!!', util.tensor2im(generated.data[0])), 
+                               ])
+    else:  
+        frac = data['frac']
+        generated = model.inference(data['label'], data['inst'], data['image'], amount=frac)
+        visuals = OrderedDict([('input_image~!!!!', util.tensor2im(data['label'][0])),
+                               ('stylespace_target', util.tensor2im(data['image'][0])), 
+                               ('output_image!!!', util.tensor2im(generated.data[0])), 
+                               ])
     #print('processed', util.tensor2im(generated.data[0]))
-    visuals = OrderedDict([('input_label', util.tensor2label(data['label'][0], opt.label_nc)),
-                           ('synthesized_image', util.tensor2im(generated.data[0]))])
+    #print('data label', generated.data[:, 0, :4, :4])
+
     img_path = data['path']
     print('process image... %s' % img_path)
-    visualizer.save_images(webpage, visuals, img_path, idx=i)
+    visualizer.save_images(webpage, visuals, img_path, idx=i, scalar=frac[0])
 
 webpage.save()

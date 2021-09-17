@@ -34,7 +34,7 @@ class Visualizer():
             log_file.write('================ Training Loss (%s) ================\n' % now)
 
     # |visuals|: dictionary of images to display or save
-    def display_current_results(self, visuals, epoch, step):
+    def display_current_results(self, visuals, epoch, step, scalar = None):
         if self.tf_log: # show images in tensorboard output
             img_summaries = []
             for label, image_numpy in visuals.items():
@@ -67,6 +67,8 @@ class Visualizer():
             webpage = html.HTML(self.web_dir, 'Experiment name = %s' % self.name, refresh=30)
             for n in range(epoch, 0, -1):
                 webpage.add_header('epoch [%d]' % n)
+                if scalar is not None: 
+                    webpage.add_header(f'scalar modulation: {scalar.item()}')
                 ims = []
                 txts = []
                 links = []
@@ -110,7 +112,7 @@ class Visualizer():
             log_file.write('%s\n' % message)
 
     # save image to the disk
-    def save_images(self, webpage, visuals, image_path, idx=None):
+    def save_images(self, webpage, visuals, image_path, idx=None, scalar=None):
         image_dir = webpage.get_image_dir()
         short_path = ntpath.basename(image_path[0])
         name = os.path.splitext(short_path)[0]
@@ -118,6 +120,9 @@ class Visualizer():
             webpage.add_header(f'sample_{idx}')
         else: 
             webpage.add_header(name)
+            
+        if scalar is not None: 
+            webpage.add_header(f'scalar modulation: {scalar}')
         ims = []
         txts = []
         links = []

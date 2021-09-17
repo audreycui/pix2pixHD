@@ -5,6 +5,7 @@ from torch.autograd import Variable
 from util.image_pool import ImagePool
 from .base_model import BaseModel
 from . import networks
+from pbw_utils import nethook
 
 class Pix2PixHDModel(BaseModel):
     def name(self):
@@ -126,8 +127,9 @@ class Pix2PixHDModel(BaseModel):
         if not self.opt.no_instance:
             inst_map = inst_map.data.cuda()
             edge_map = self.get_edges(inst_map)
-            input_label = torch.cat((input_label, edge_map), dim=1)         
-        input_label = Variable(input_label, volatile=infer)
+            input_label = torch.cat((input_label, edge_map), dim=1)
+        with torch.no_grad(): 
+            input_label = Variable(input_label)
 
         # real images for training
         if real_image is not None:
@@ -195,11 +197,11 @@ class Pix2PixHDModel(BaseModel):
         # Only return the fake_B image if necessary to save BW
         return [ self.loss_filter( loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, loss_D_real, loss_D_fake ), None if not infer else fake_image ]
 
-    def inference(self, label, inst, image=None):
+    def inference(self, label, inst, image=None, amount=0):
         # Encode Inputs        
         image = Variable(image) if image is not None else None
         input_label, inst_map, real_image, _ = self.encode_input(Variable(label), Variable(inst), image, infer=True)
-
+        
         # Fake Generation
         if self.use_features:
             if self.opt.use_encoded_image:
@@ -214,9 +216,14 @@ class Pix2PixHDModel(BaseModel):
            
         if torch.__version__.startswith('0.4'):
             with torch.no_grad():
-                fake_image = self.netG.forward(input_concat)
+                fake_image = self.netG.forward(input_concat, amount)
         else:
-            fake_image = self.netG.forward(input_concat)
+            #layer_trace = 'output_block'
+            #with nethook.Trace(self.netG, layer_trace) as ret: 
+            fake_image = self.netG.forward(input_concat, amount)
+            #print('INFERENCE layer trace output', ret.output[:, 0, :4, :4])
+        
+        
         return fake_image
 
     def sample_features(self, inst): 
