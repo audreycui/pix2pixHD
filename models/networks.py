@@ -239,22 +239,23 @@ class ModulatedGenerator(nn.Module):
         resnet_blocks = []
         mult = 2**n_downsampling
         print('padding type', padding_type)
-        self.n_blocks = n_blocks
-#         for i in range(n_blocks):
-#             resnet_blocks += [ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-#                                    norm_layer=norm_layer)]
-        self.resnet_block1 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-                                   norm_layer=norm_layer)
-        self.resnet_block2 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-                                   norm_layer=norm_layer)
-        self.resnet_block3 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-                                   norm_layer=norm_layer)
-        self.resnet_block4 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-                                   norm_layer=norm_layer)
-        self.resnet_block5 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-                                   norm_layer=norm_layer)
-        self.resnet_block6 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-                                   norm_layer=norm_layer)
+        #self.n_blocks = n_blocks
+        for i in range(n_blocks):
+            resnet_blocks += [ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
+                                   norm_layer=norm_layer)]
+        self.resnet_blocks = nn.ModuleList(resnet_blocks)
+#         self.resnet_block1 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
+#                                    norm_layer=norm_layer)
+#         self.resnet_block2 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
+#                                    norm_layer=norm_layer)
+#         self.resnet_block3 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
+#                                    norm_layer=norm_layer)
+#         self.resnet_block4 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
+#                                    norm_layer=norm_layer)
+#         self.resnet_block5 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
+#                                    norm_layer=norm_layer)
+#         self.resnet_block6 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
+#                                    norm_layer=norm_layer)
         
         #self.resnet_blocks = resnet_blocks #nn.Sequential(*resnet_blocks)
         
@@ -274,13 +275,9 @@ class ModulatedGenerator(nn.Module):
     def forward(self, input, scalar_amount=0):
         x = self.initial_block(input) 
         x = self.downsample_blocks(x)
-            
-        x = self.resnet_block1(x, scalar_amount)
-        x = self.resnet_block2(x, scalar_amount)
-        x = self.resnet_block3(x, scalar_amount)
-        x = self.resnet_block4(x, scalar_amount)
-        x = self.resnet_block5(x, scalar_amount)
-        x = self.resnet_block6(x, scalar_amount)
+        
+        for resnet_block in self.resnet_blocks: 
+            x = resnet_block(x, scalar_amount)
         
         x = self.upsample_blocks(x)
         x = self.output_block(x)
