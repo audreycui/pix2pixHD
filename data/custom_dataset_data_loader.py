@@ -14,6 +14,8 @@ from pbw_utils.stylegan2 import load_seq_stylegan
 
 from PIL import Image
 import random
+import numpy as np
+
 
 def CreateDataset(opt):
     dataset = None
@@ -49,7 +51,11 @@ class StyleGANDatasetDataLoader(BaseDataLoader):
     
     def initialize(self, opt): 
         BaseDataLoader.initialize(self, opt)
-        self.dataset = StyleGANDataset()
+        if opt.n_stylechannels > 1:
+            self.dataset = MultichannelStyleGANDataset(opt.n_stylechannels)
+        else: 
+            self.dataset = StyleGANDataset()
+            
         self.dataloader = DataLoader( 
             self.dataset, 
             batch_size=opt.batchSize,
@@ -66,11 +72,9 @@ class StyleGANDatasetDataLoader(BaseDataLoader):
 class StyleGANDataset(Dataset): 
     def __init__(self, 
                  dset='bedroom', 
-                 batch_size = 1,
                  debug = False
                 ): 
         self.model = load_seq_stylegan('bedroom', mconv='seq', truncation=0.90)
-        self.batch_size = batch_size
         nethook.set_requires_grad(False, self.model)
         self.light_layer = 'layer8'
         self.light_unit = 265
@@ -93,7 +97,7 @@ class StyleGANDataset(Dataset):
 
     def __getitem__(self, index):
         
-        z = torch.randn(self.batch_size, 512, device='cuda')
+        z = torch.randn(1, 512, device='cuda')
         
         if self.debug: 
             z = self.fixed_z
@@ -117,3 +121,63 @@ class StyleGANDataset(Dataset):
             return output
         with nethook.Trace(self.model, f'{layername}.sconv.mconv.modulation', edit_output=change_light):
             return self.model(z)
+        
+class MultichannelStyleGANDataset(Dataset): 
+    def __init__(self,
+                 num_stylechannels, 
+                 dset='bedroom', 
+                 debug = False,  
+                ): 
+        self.model = load_seq_stylegan('bedroom', mconv='seq', truncation=0.90)
+        nethook.set_requires_grad(False, self.model)
+        self.layers = ['layer8', 'layer8']
+        self.units = [265, 397] #[lamp, window]
+        #self.segmodel, self.seglabels = load_segmenter()
+        self.color = torch.tensor([1.0, 1.0, 1.0]).float().cuda()[:,None,None]
+        #self.frac = ((float(100) * 2 - 100) / 100.0)
+        self.num = 0
+        self.num_stylechannels = num_stylechannels
+        
+        self.debug = debug
+        if self.debug: 
+            if path.exists('fixed_z.pt'): 
+                self.fixed_z = torch.load('fixed_z.pt')
+            else: 
+                self.fixed_z = torch.randn(self.batch_size, 512, device='cuda')
+                torch.save(self.fixed_z, 'fixed_z.pt') 
+                #save fixed z 
+
+    def __len__(self):
+        return 5000
+
+    def __getitem__(self, index):
+        
+        z = torch.randn(1, 512, device='cuda')
+        
+        if self.debug: 
+            z = self.fixed_z
+            
+        original = self.model(z)[0]
+        #amount = random.randint(0, 100)
+        #frac = ((float(amount) * 2 - 100) / 100.0)
+        frac = np.random.rand(self.num_stylechannels)*2-1
+        adjusted = self.get_lit_scene(z, frac, self.layers, self.units)[0]
+        
+        if self.debug: 
+            adjusted = original
+            frac = 0
+            
+        data = {'label': original, 'image': adjusted, 'inst': 0, 'feat': 0, 'path': f'bedroom_{self.num}', 'frac': frac}
+        self.num += 1
+        return data
+    
+    def get_lit_scene(self, z, fracs, layers, units):
+        #TODO: modify for multiple layers
+        layername = layers[0]
+        def change_light(output):
+            for frac, unit in zip(fracs, units): 
+                output.style[:, int(unit)] = 10 * frac
+            return output
+        with nethook.Trace(self.model, f'{layername}.sconv.mconv.modulation', edit_output=change_light):
+            return self.model(z)
+

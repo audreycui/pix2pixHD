@@ -9,6 +9,7 @@ try:
     from StringIO import StringIO  # Python 2.7
 except ImportError:
     from io import BytesIO         # Python 3.x
+import numpy as np 
 
 class Visualizer():
     def __init__(self, opt):
@@ -68,7 +69,7 @@ class Visualizer():
             for n in range(epoch, 0, -1):
                 webpage.add_header('epoch [%d]' % n)
                 if scalar is not None: 
-                    webpage.add_header(f'scalar modulation: {scalar.item()}')
+                    webpage.add_header(f'scalar modulation: {scalar.numpy()}')
                 ims = []
                 txts = []
                 links = []
@@ -122,7 +123,7 @@ class Visualizer():
             webpage.add_header(name)
             
         if scalar is not None: 
-            webpage.add_header(f'scalar modulation: {scalar}')
+            webpage.add_header(f'scalar modulation: {np.array(scalar)}')
         ims = []
         txts = []
         links = []

@@ -130,7 +130,7 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
             visuals = OrderedDict([('input_image', util.tensor2label(data['label'][0], opt.label_nc)),
                                    ('output_image', util.tensor2im(generated.data[0])),
                                    ('stylespace_target', util.tensor2im(data['image'][0]))])
-            visualizer.display_current_results(visuals, epoch, total_steps, data['frac'][0])
+            visualizer.display_current_results(visuals, epoch, total_steps, data['frac'])
 
         ### save latest model
         if total_steps % opt.save_latest_freq == save_delta:

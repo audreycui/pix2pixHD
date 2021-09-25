@@ -24,7 +24,7 @@ def get_norm_layer(norm_type='instance'):
         raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
     return norm_layer
 
-def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1, 
+def define_G(input_nc, output_nc, ngf, netG, num_stylechannels, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1, 
              n_blocks_local=3, norm='instance', gpu_ids=[]): 
 
     norm_layer = get_norm_layer(norm_type=norm)     
@@ -36,7 +36,7 @@ def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_glo
     elif netG == 'encoder':
         netG = Encoder(input_nc, output_nc, ngf, n_downsample_global, norm_layer)
     elif netG == 'modulated': 
-        netG = ModulatedGenerator(input_nc, output_nc, ngf, 
+        netG = ModulatedGenerator(input_nc, output_nc, num_stylechannels, ngf, 
                                   n_downsample_global, n_blocks_global, norm_layer)
     else:
         raise('generator not implemented!')
@@ -215,51 +215,40 @@ class GlobalGenerator(nn.Module):
         return self.model(input) 
     
 class ModulatedGenerator(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=nn.BatchNorm2d, 
+    def __init__(self, input_nc, output_nc, num_stylechannels, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=nn.BatchNorm2d, 
                  padding_type='reflect'):
         assert(n_blocks >= 0)
         super(ModulatedGenerator, self).__init__()        
         activation = nn.ReLU(True)        
-
+        
+        ## initial block output shape: [batchsize, ngf, img dim, img dim]
         self.initial_block = nn.Sequential(nn.ReflectionPad2d(3), 
                                            nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0), 
                                            norm_layer(ngf), 
                                            activation)
         
-        ### downsample
+        ### downsample shape: [batchsize, ngf* 2**n_downsampling, img dim/2**n, '']
         downsample_blocks = []
         for i in range(n_downsampling):
             mult = 2**i
             downsample_blocks += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1),
                       norm_layer(ngf * mult * 2), activation]
-            #self.downsample_blocks.append(ModulatedDownsampleBlock(ngf * mult, activation=activation, norm_layer=norm_layer))
         self.downsample_blocks = nn.Sequential(*downsample_blocks)
         
-        ### resnet blocks
+        ### resnet blocks: [batchsize, ngf* 2**n_downsampling, img_dim/2**n_downsampling, '']
         resnet_blocks = []
         mult = 2**n_downsampling
         print('padding type', padding_type)
         #self.n_blocks = n_blocks
         for i in range(n_blocks):
-            resnet_blocks += [ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-                                   norm_layer=norm_layer)]
+            resnet_blocks += [ModulatedResnetBlock(ngf * mult, 
+                                                   num_stylechannels, 
+                                                   padding_type=padding_type, 
+                                                   activation=activation, 
+                                                   norm_layer=norm_layer)]
         self.resnet_blocks = nn.ModuleList(resnet_blocks)
-#         self.resnet_block1 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-#                                    norm_layer=norm_layer)
-#         self.resnet_block2 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-#                                    norm_layer=norm_layer)
-#         self.resnet_block3 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-#                                    norm_layer=norm_layer)
-#         self.resnet_block4 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-#                                    norm_layer=norm_layer)
-#         self.resnet_block5 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-#                                    norm_layer=norm_layer)
-#         self.resnet_block6 = ModulatedResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, 
-#                                    norm_layer=norm_layer)
         
-        #self.resnet_blocks = resnet_blocks #nn.Sequential(*resnet_blocks)
-        
-        ### upsample    
+        ### upsample blocks: [batchsize, ngf, img_dim, img_dim]   
         upsample_blocks = []
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
@@ -268,56 +257,26 @@ class ModulatedGenerator(nn.Module):
                                norm_layer(int(ngf * mult / 2)), activation]
         self.upsample_blocks = nn.Sequential(*upsample_blocks)
         
+        ## output: [batchsize, 3, img_dim, img_dim]
         self.output_block = nn.Sequential(nn.ReflectionPad2d(3), 
                                           nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0), 
                                           nn.Tanh())        
             
-    def forward(self, input, scalar_amount=0):
-        x = self.initial_block(input) 
+    def forward(self, input, scalar_amount=[0]):
+        x = self.initial_block(input)
         x = self.downsample_blocks(x)
-        
         for resnet_block in self.resnet_blocks: 
             x = resnet_block(x, scalar_amount)
         
         x = self.upsample_blocks(x)
         x = self.output_block(x)
         return x
-
-# Define a modulated downsample block
-class ModulatedDownsampleBlock(nn.Module): 
-    def __init__(self, dim, activation=nn.ReLU(True), norm_layer=nn.BatchNorm2d): 
-        super(ModulatedDownsampleBlock, self).__init__()
-        self.scalar_to_style = nn.Linear(1, dim)
-        
-        self.weight = nn.Parameter(torch.randn((dim, dim*2, 3, 3)))
-        nn.init.kaiming_normal_(self.weight, a=0, mode='fan_in', nonlinearity='leaky_relu')
-        
-        self.block = nn.Sequential(#nn.Conv2d(dim, dim*2, kernel_size=3, stride=2, padding=1),
-                                              norm_layer(dim*2), 
-                                              activation)
-        
-    def forward(self, x, scalar=0): 
-        style = self.scalar_to_style(torch.tensor(scalar).cuda()) #dim: 1, dim
-         
-        #modulation, TODO: fix shape
-        w1 = style[:, None, :, None, None]
-        w2 = self.weight[None, :, :, :, :]
-        weights = w2 * (w1 + 1)
-        
-        #demodulation
-        d = torch.rsqrt((weights ** 2).sum(dim=(2, 3, 4), keepdim=True) + self.eps)
-        weights = weights * d
-        
-        #TODO: figure out padding, groups(?)
-        x = F.conv2d(x, weights, padding=padding, groups=b)
-        x = self.block(x)
-        return x
     
 class ModulatedResnetBlock(nn.Module):
-    def __init__(self, dim, padding_type, norm_layer, activation=nn.ReLU(True), use_dropout=False):
+    def __init__(self, dim, num_stylechannels, padding_type, norm_layer, activation=nn.ReLU(True), use_dropout=False):
         super(ModulatedResnetBlock, self).__init__()
         self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, activation, use_dropout)
-        self.scalar_to_style = nn.Linear(1, dim).cuda() #.float()
+        self.scalar_to_style = nn.Linear(num_stylechannels, dim).cuda() #.float()
         
         #self.weight = nn.Parameter(torch.randn((dim, dim*2, 3, 3)))
         #nn.init.kaiming_normal_(self.weight, a=0, mode='fan_in', nonlinearity='leaky_relu')
@@ -354,11 +313,13 @@ class ModulatedResnetBlock(nn.Module):
 
         return nn.Sequential(*conv_block).cuda()
         
-    def forward(self, x, scalar): 
+    def forward(self, x, scalar): #dimensions of x: ([batchsize, dim, 16, 16])
         scalar = torch.tensor(scalar).float().cuda()
-        scalar = torch.unsqueeze(scalar, dim=1)
-        style = self.scalar_to_style(scalar) #dim: 1, dim
+        #scalar = torch.unsqueeze(scalar, dim=1)
+        
+        style = self.scalar_to_style(scalar) #dim: numchannels, dim
         style = torch.unsqueeze(torch.unsqueeze(style, dim=-1), dim=-1)
+        
         x = x*(1+style)
         out = x + self.conv_block(x)
         return out

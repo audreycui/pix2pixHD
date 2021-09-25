@@ -33,7 +33,7 @@ class Pix2PixHDModel(BaseModel):
             netG_input_nc += 1
         if self.use_features:
             netG_input_nc += opt.feat_num                  
-        self.netG = networks.define_G(netG_input_nc, opt.output_nc, opt.ngf, opt.netG, 
+        self.netG = networks.define_G(netG_input_nc, opt.output_nc, opt.ngf, opt.netG, opt.n_stylechannels,
                                       opt.n_downsample_global, opt.n_blocks_global, opt.n_local_enhancers, 
                                       opt.n_blocks_local, opt.norm, gpu_ids=self.gpu_ids)        
 
@@ -200,7 +200,8 @@ class Pix2PixHDModel(BaseModel):
     def inference(self, label, inst, image=None, amount=0):
         # Encode Inputs        
         image = Variable(image) if image is not None else None
-        input_label, inst_map, real_image, _ = self.encode_input(Variable(label), Variable(inst), image, infer=True)
+        with torch.no_grad(): 
+            input_label, inst_map, real_image, _ = self.encode_input(Variable(label), Variable(inst), image, infer=True)
         
         # Fake Generation
         if self.use_features:

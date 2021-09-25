@@ -60,33 +60,16 @@ for i, data in enumerate(dataset):
     #print("data shape", data['label'].shape)
     #print('data label', data['label'][:, 0, :4, :4])
          
-                           
-#     if opt.engine:
-#         generated = run_trt_engine(opt.engine, minibatch, [data['label'], data['inst']])
-#     elif opt.onnx:
-#         generated = run_onnx(opt.onnx, opt.data_type, minibatch, [data['label'], data['inst']]) 
-#     elif not opt.generated: 
-#         amount = random.randint(0, 100)
-#         frac = [((float(amount) * 2 - 100) / 100.0)]
-#         generated = model.inference(data['label'], data['inst'], data['image'], amount=frac)
-#         visuals = OrderedDict([('input_image~!!!!', util.tensor2im(data['label'][0])),
-#                                ('output_image!!!', util.tensor2im(generated.data[0])), 
-#                                ])
-#     else:  
-#         frac = data['frac']
-#         generated = model.inference(data['label'], data['inst'], data['image'], amount=frac)
-#         visuals = OrderedDict([('input_image~!!!!', util.tensor2im(data['label'][0])),
-#                                ('stylespace_target', util.tensor2im(data['image'][0])), 
-#                                ('output_image!!!', util.tensor2im(generated.data[0])), 
-#                                ])
-    #print('processed', util.tensor2im(generated.data[0]))
-    #print('data label', generated.data[:, 0, :4, :4])
     
-    scalars = np.linspace(0, 100, num=9)
+    scalars = np.linspace(-1, 1, num=9)
+    if opt.n_stylechannels == 2: 
+        x = np.linspace(-1, 1, num=5)
+        y = np.linspace(-1, 1, num=5)
+        scalars = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
     generated_ims = []
-    for scalar in scalars: 
-        frac = [((float(scalar) * 2 - 100) / 100.0)]
-        print('frac:', frac)
+    
+    for frac in scalars: 
+        print(frac)
         generated = model.inference(data['label'], data['inst'], data['image'], amount=frac)
         generated_ims.append((f'modulation: {frac}', util.tensor2im(generated.data[0])))
     visuals = OrderedDict(generated_ims)

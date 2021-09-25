@@ -61,14 +61,20 @@ class BaseOptions():
         self.parser.add_argument('--nef', type=int, default=16, help='# of encoder filters in the first conv layer')        
         self.parser.add_argument('--n_clusters', type=int, default=10, help='number of clusters for features')        
         
+        self.parser.add_argument('--n_stylechannels', type=int, default=1, help='number of stylespace channels to modify')        
+
         #self.parser.add_argument('--debug', type=int, default=False)        
 
         self.initialized = True
 
-    def parse(self, save=True):
+    def parse(self, save=True, cmd=None):
         if not self.initialized:
             self.initialize()
-        self.opt = self.parser.parse_args()
+            
+        if cmd is not None: 
+            self.opt = self.parser.parse_args(cmd)
+        else:
+            self.opt = self.parser.parse_args()
         self.opt.isTrain = self.isTrain   # train or test
 
         str_ids = self.opt.gpu_ids.split(',')
