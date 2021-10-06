@@ -2,6 +2,23 @@
 
 <br><br><br><br>
 
+# modulated pix2pix
+
+```
+python train.py --name [NAME] --netG modulated --batchSize 8 --max_dataset_size 2000 --no_instance --generated true --label_nc 0 --niter 200 --n_stylechannels [NUMCHANNELS] --use_location_map true
+```
+- name: name of the folder this model is saved to (or loaded from) <br>
+- netG: type of generator. modulated is my version. global is the default from the original paper. <br> 
+- generated: include this flag if using a generated dataset. otherwise, --dataroot should be used to specify the path to the real images <br>
+- n_stylechannels: number of stylechannels that will be modulated. as of now, the layers/units of the stylechannels must be specified in ```custom_dataset_loader.py```. <br>
+- use_location_map: adds location of lamps as a feature map, which gets concatenated to the rest of the input. currently only supported for single channel modulations
+<br><br>
+
+```
+python test.py --name windows_lamps_modulation  --netG modulated --no_instance --input_nc 3 --label_nc 0 --dataroot datasets/lsun_bedrooms/ --which_epoch 40 --n_stylechannels 2
+```
+
+
 # pix2pixHD
 ### [Project](https://tcwang0509.github.io/pix2pixHD/) | [Youtube](https://youtu.be/3AIpPlzM_qs) | [Paper](https://arxiv.org/pdf/1711.11585.pdf) <br>
 Pytorch implementation of our method for high-resolution (e.g. 2048x1024) photorealistic image-to-image translation. It can be used for turning semantic label maps into photo-realistic images or synthesizing portraits from face label maps. <br><br>
