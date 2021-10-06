@@ -1,6 +1,7 @@
 from torch.utils.data import Dataset, DataLoader
 from data.base_data_loader import BaseDataLoader
 import torch 
+import torch.nn.functional as F
 
 import os, sys, inspect
 from os import path
@@ -53,8 +54,11 @@ class StyleGANDatasetDataLoader(BaseDataLoader):
         BaseDataLoader.initialize(self, opt)
         if opt.n_stylechannels > 1:
             self.dataset = MultichannelStyleGANDataset(opt.n_stylechannels)
-        else: 
-            self.dataset = StyleGANDataset()
+        else:
+            loc_map = False
+            if opt.isTrain: 
+                loc_map = opt.use_location_map
+            self.dataset = StyleGANDataset(loc_map)
             
         self.dataloader = DataLoader( 
             self.dataset, 
@@ -71,6 +75,7 @@ class StyleGANDatasetDataLoader(BaseDataLoader):
         
 class StyleGANDataset(Dataset): 
     def __init__(self, 
+                 use_loc, 
                  dset='bedroom', 
                  debug = False
                 ): 
@@ -80,9 +85,15 @@ class StyleGANDataset(Dataset):
         self.light_unit = 265
         #self.segmodel, self.seglabels = load_segmenter()
         self.color = torch.tensor([1.0, 1.0, 1.0]).float().cuda()[:,None,None]
-        self.frac = ((float(100) * 2 - 100) / 100.0)
         self.num = 0
+        self.use_loc = use_loc
         
+        if use_loc: 
+            self.loc_frac = [2]
+            self.kernel_dim = 7
+            self.blur_kernel = (1/2**(self.kernel_dim))*torch.ones(self.kernel_dim, self.kernel_dim)
+            self.blur_kernel = self.blur_kernel.repeat(1, 3, 1, 1).cuda()
+
         self.debug = debug
         if self.debug: 
             if path.exists('fixed_z.pt'): 
@@ -103,21 +114,27 @@ class StyleGANDataset(Dataset):
             z = self.fixed_z
             
         original = self.model(z)[0]
-        amount = random.randint(0, 100)
-        frac = ((float(amount) * 2 - 100) / 100.0)
+        frac = np.random.rand(1)*2-1
+
         adjusted = self.get_lit_scene(z, frac, self.light_layer, self.light_unit)[0]
         
         if self.debug: 
             adjusted = original
             frac = 0
-            
-        data = {'label': original, 'image': adjusted, 'inst': 0, 'feat': 0, 'path': f'bedroom_{self.num}', 'frac': frac}
+        
+        feat = 0
+        if self.use_loc: 
+            diff = original.unsqueeze(0) - self.get_lit_scene(z, self.loc_frac, self.light_layer, self.light_unit)
+            blur = F.conv2d(diff, self.blur_kernel)
+            feat = (blur > 0.7).float() * 1
+        data = {'label': original, 'image': adjusted, 'inst': feat, 'feat': 0, 'path': f'bedroom_{self.num}', 'frac': frac}       
+        
         self.num += 1
         return data
     
     def get_lit_scene(self, z, frac, layername, unitnum):
         def change_light(output):
-            output.style[:, int(unitnum)] = 10 * frac
+            output.style[:, int(unitnum)] = 10 * frac[0]
             return output
         with nethook.Trace(self.model, f'{layername}.sconv.mconv.modulation', edit_output=change_light):
             return self.model(z)
@@ -132,9 +149,8 @@ class MultichannelStyleGANDataset(Dataset):
         nethook.set_requires_grad(False, self.model)
         self.layers = ['layer8', 'layer8']
         self.units = [265, 397] #[lamp, window]
-        #self.segmodel, self.seglabels = load_segmenter()
+
         self.color = torch.tensor([1.0, 1.0, 1.0]).float().cuda()[:,None,None]
-        #self.frac = ((float(100) * 2 - 100) / 100.0)
         self.num = 0
         self.num_stylechannels = num_stylechannels
         
@@ -158,8 +174,6 @@ class MultichannelStyleGANDataset(Dataset):
             z = self.fixed_z
             
         original = self.model(z)[0]
-        #amount = random.randint(0, 100)
-        #frac = ((float(amount) * 2 - 100) / 100.0)
         frac = np.random.rand(self.num_stylechannels)*2-1
         adjusted = self.get_lit_scene(z, frac, self.layers, self.units)[0]
         

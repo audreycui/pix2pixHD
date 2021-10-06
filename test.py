@@ -66,7 +66,8 @@ for i, data in enumerate(dataset):
     elif opt.onnx:
         generated = run_onnx(opt.onnx, opt.data_type, minibatch, [data['label'], data['inst']]) 
     elif not opt.generated: 
-        frac = np.random.rand(opt.n_stylechannels)*2-1
+        #frac = np.random.rand(opt.n_stylechannels)*2-1
+        frac = [1]
         print('frac', frac)
         generated = model.inference(data['label'], data['inst'], data['image'], amount=frac)
         visuals = OrderedDict([('input_image~!!!!', util.tensor2im(data['label'][0])),
