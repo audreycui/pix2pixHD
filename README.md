@@ -4,7 +4,7 @@
 
 # modulated pix2pix
 
-##running training/testing scripts
+## running training/testing scripts
 ```
 python train.py --name [NAME] --netG modulated --batchSize 8 --max_dataset_size 2000 --no_instance --generated true --label_nc 0 --niter 200 --n_stylechannels [NUMCHANNELS] --use_location_map true
 ```
@@ -22,13 +22,13 @@ python test.py --name [NAME]  --netG modulated --no_instance --input_nc 3 --labe
 - more options in base_options.py for general options, train_options.py for training specific options, test_options for testing specific options 
 <br><br>
 
-##how the code works: 
-###creating a dataset
+## how the code works: 
+### creating a dataset
 - calls CreateDataLoader in data/dataloader.py
 - for generated datasets, StyleGANDataLoader in data/custom_dataset_data_loader.py calls appropriate dataset (decided by options flags)
 - easiest way to experiment is to define a new dataset in custom_data_loader and have StyleGANDataLoader to call that
 
-###pix2pix model
+### pix2pix model
 - forward and inference functions in model/pix2pixHD.py. 
 - networks defined in models/networks.py — this is where resnet modulation (ModulatedGenerator) is defined
 
