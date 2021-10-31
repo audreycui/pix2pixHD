@@ -221,7 +221,8 @@ class Pix2PixHDModel(BaseModel):
         else:
             #layer_trace = 'output_block'
             #with nethook.Trace(self.netG, layer_trace) as ret: 
-            fake_image = self.netG.forward(input_concat, amount)
+            with torch.no_grad():
+                fake_image = self.netG.forward(input_concat, amount)
             #print('INFERENCE layer trace output', ret.output[:, 0, :4, :4])
         
         

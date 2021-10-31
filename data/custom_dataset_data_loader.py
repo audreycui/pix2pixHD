@@ -1,5 +1,7 @@
 from torch.utils.data import Dataset, DataLoader
 from data.base_data_loader import BaseDataLoader
+from torch.utils.data.sampler import WeightedRandomSampler
+
 import torch 
 import torch.nn.functional as F
 
@@ -52,14 +54,21 @@ class StyleGANDatasetDataLoader(BaseDataLoader):
     
     def initialize(self, opt): 
         BaseDataLoader.initialize(self, opt)
-        if opt.n_stylechannels > 1:
-            self.dataset = MultichannelStyleGANDataset(opt.n_stylechannels)
-        else:
-            loc_map = False
-            if opt.isTrain: 
-                loc_map = opt.use_location_map
-            self.dataset = StyleGANDataset(loc_map)
-            
+        if opt.alternate_train: 
+            on_dataset = AlternateStyleGANDataset()
+            off_dataset = AlternateStyleGANDataset(reverse = True)
+            self.dataset = torch.utils.data.ConcatDataset([on_dataset, off_dataset])
+ 
+        else: 
+            if opt.n_stylechannels > 1:
+                self.dataset = MultichannelStyleGANDataset(opt.n_stylechannels)
+            else:
+                if opt.isTrain: 
+                    loc_map = opt.use_location_map
+                    bootstrap = opt.lamp_off_bootstrap
+                    self.dataset = StyleGANDataset(loc_map=loc_map, bootstrap=bootstrap)
+                else: 
+                    self.dataset = StyleGANDataset(frac_one = opt.frac_one)
         self.dataloader = DataLoader( 
             self.dataset, 
             batch_size=opt.batchSize,
@@ -75,9 +84,11 @@ class StyleGANDatasetDataLoader(BaseDataLoader):
         
 class StyleGANDataset(Dataset): 
     def __init__(self, 
-                 use_loc, 
+                 loc_map=False, 
+                 bootstrap=False,
                  dset='bedroom', 
-                 debug = False
+                 debug = False, 
+                 frac_one = False, 
                 ): 
         self.model = load_seq_stylegan('bedroom', mconv='seq', truncation=0.90)
         nethook.set_requires_grad(False, self.model)
@@ -86,9 +97,10 @@ class StyleGANDataset(Dataset):
         #self.segmodel, self.seglabels = load_segmenter()
         self.color = torch.tensor([1.0, 1.0, 1.0]).float().cuda()[:,None,None]
         self.num = 0
-        self.use_loc = use_loc
-        
-        if use_loc: 
+        self.use_loc = loc_map
+        self.bootstrap = bootstrap
+        self.frac_one = frac_one
+        if self.use_loc: 
             self.loc_frac = [2]
             self.kernel_dim = 7
             self.blur_kernel = (1/2**(self.kernel_dim))*torch.ones(self.kernel_dim, self.kernel_dim)
@@ -114,20 +126,33 @@ class StyleGANDataset(Dataset):
             z = self.fixed_z
             
         original = self.model(z)[0]
-        frac = np.random.rand(1)*2-1
-
-        adjusted = self.get_lit_scene(z, frac, self.light_layer, self.light_unit)[0]
+        input_img = original
         
-        if self.debug: 
-            adjusted = original
+        if self.bootstrap: 
+            frac = np.random.rand(1)
+            adjusted = self.get_lit_scene(z, frac, self.light_layer, self.light_unit)[0]
+            input_img = adjusted
+            output_img = original
+            frac = -frac
+        elif self.debug: 
+            output_img = original
             frac = 0
+        else: 
+            frac = np.random.rand(1)*2-1
+            if self.frac_one: 
+                frac = [1]
+            adjusted = self.get_lit_scene(z, frac, self.light_layer, self.light_unit)[0]
+            output_img = adjusted
         
+
         feat = 0
         if self.use_loc: 
             diff = original.unsqueeze(0) - self.get_lit_scene(z, self.loc_frac, self.light_layer, self.light_unit)
             blur = F.conv2d(diff, self.blur_kernel)
-            feat = (blur > 0.7).float() * 1
-        data = {'label': original, 'image': adjusted, 'inst': feat, 'feat': 0, 'path': f'bedroom_{self.num}', 'frac': frac}       
+            feat = ((blur) > 0.7).float() * 1
+            
+            
+        data = {'label': input_img, 'image': output_img, 'inst': 0, 'feat': feat, 'path': f'bedroom_{self.num}', 'frac': frac}       
         
         self.num += 1
         return data
@@ -191,6 +216,48 @@ class MultichannelStyleGANDataset(Dataset):
         def change_light(output):
             for frac, unit in zip(fracs, units): 
                 output.style[:, int(unit)] = 10 * frac
+            return output
+        with nethook.Trace(self.model, f'{layername}.sconv.mconv.modulation', edit_output=change_light):
+            return self.model(z)
+        
+        
+class AlternateStyleGANDataset(Dataset): 
+    def __init__(self, 
+                 dset='bedroom', 
+                 reverse = False
+                ): 
+        self.model = load_seq_stylegan('bedroom', mconv='seq', truncation=0.90)
+        nethook.set_requires_grad(False, self.model)
+        self.light_layer = 'layer8'
+        self.light_unit = 265
+        self.reverse = reverse
+        self.num=0
+    def __len__(self):
+        return 5000
+
+    def __getitem__(self, index):
+        
+        z = torch.randn(1, 512, device='cuda')
+            
+        original = self.model(z)[0]
+        input_img = original
+        
+        frac = np.random.rand(1)
+        adjusted = self.get_lit_scene(z, frac, self.light_layer, self.light_unit)[0]
+        output_img = adjusted
+        
+        if self.reverse: 
+            frac = -frac
+            input_img = adjusted
+            output_img = original
+ 
+        data = {'label': input_img, 'image': output_img, 'inst': 0, 'feat': 0, 'path': f'bedroom_{self.num}', 'frac': frac}       
+        self.num+=1
+        return data
+    
+    def get_lit_scene(self, z, frac, layername, unitnum):
+        def change_light(output):
+            output.style[:, int(unitnum)] = 10 * frac[0]
             return output
         with nethook.Trace(self.model, f'{layername}.sconv.mconv.modulation', edit_output=change_light):
             return self.model(z)

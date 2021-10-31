@@ -32,5 +32,6 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--pool_size', type=int, default=0, help='the size of image buffer that stores previously generated images')
         
         self.parser.add_argument('--use_location_map', type=bool, default=False)
-
+        self.parser.add_argument('--lamp_off_bootstrap', type=bool, default=False)
+        self.parser.add_argument('--alternate_train', type=bool, default=False)
         self.isTrain = True
