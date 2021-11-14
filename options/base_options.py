@@ -62,6 +62,7 @@ class BaseOptions():
         self.parser.add_argument('--n_clusters', type=int, default=10, help='number of clusters for features')        
         
         self.parser.add_argument('--n_stylechannels', type=int, default=1, help='number of stylespace channels to modify')        
+        self.parser.add_argument('--masked', type=bool, default=False)
 
         #self.parser.add_argument('--debug', type=int, default=False)        
 

@@ -1,5 +1,6 @@
 from torch.utils.data import Dataset, DataLoader
 from data.base_data_loader import BaseDataLoader
+from models.masked_stylegan import make_masked_stylegan
 from torch.utils.data.sampler import WeightedRandomSampler
 
 import torch 
@@ -12,12 +13,19 @@ currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentfram
 parentdir = os.path.dirname(currentdir)
 sys.path.insert(0, parentdir) 
 
-from pbw_utils import zdataset, show, labwidget, paintwidget, renormalize, nethook, imgviz, pbar
+from pbw_utils import zdataset, show, labwidget, paintwidget, renormalize, nethook, imgviz, pbar, smoothing, imgviz
 from pbw_utils.stylegan2 import load_seq_stylegan
+import copy, contextlib
+from pbw_utils.stylegan2.models import DataBag
+from pbw_utils.segmenter import load_segmenter
+from importlib import reload
 
 from PIL import Image
 import random
 import numpy as np
+
+from torchvision.transforms import Resize
+import cv2
 
 
 def CreateDataset(opt):
@@ -54,14 +62,20 @@ class StyleGANDatasetDataLoader(BaseDataLoader):
     
     def initialize(self, opt): 
         BaseDataLoader.initialize(self, opt)
-        if opt.alternate_train: 
+        if opt.masked: 
+            on_dataset = MaskedStyleGANDataset()
+            off_dataset = MaskedStyleGANDataset(reverse = True)
+            self.dataset = torch.utils.data.ConcatDataset([on_dataset, off_dataset])
+        elif opt.alternate_train: 
             on_dataset = AlternateStyleGANDataset()
             off_dataset = AlternateStyleGANDataset(reverse = True)
             self.dataset = torch.utils.data.ConcatDataset([on_dataset, off_dataset])
  
         else: 
             if opt.n_stylechannels > 1:
-                self.dataset = MultichannelStyleGANDataset(opt.n_stylechannels)
+                on_dataset = MultichannelStyleGANDataset(2)
+                off_dataset = MultichannelStyleGANDataset(2, reverse = True)
+                self.dataset = torch.utils.data.ConcatDataset([on_dataset, off_dataset])
             else:
                 if opt.isTrain: 
                     loc_map = opt.use_location_map
@@ -168,7 +182,8 @@ class MultichannelStyleGANDataset(Dataset):
     def __init__(self,
                  num_stylechannels, 
                  dset='bedroom', 
-                 debug = False,  
+                 debug = False,
+                 reverse = False
                 ): 
         self.model = load_seq_stylegan('bedroom', mconv='seq', truncation=0.90)
         nethook.set_requires_grad(False, self.model)
@@ -178,7 +193,7 @@ class MultichannelStyleGANDataset(Dataset):
         self.color = torch.tensor([1.0, 1.0, 1.0]).float().cuda()[:,None,None]
         self.num = 0
         self.num_stylechannels = num_stylechannels
-        
+        self.reverse = reverse
         self.debug = debug
         if self.debug: 
             if path.exists('fixed_z.pt'): 
@@ -199,12 +214,13 @@ class MultichannelStyleGANDataset(Dataset):
             z = self.fixed_z
             
         original = self.model(z)[0]
-        frac = np.random.rand(self.num_stylechannels)*2-1
+        frac = np.random.rand(self.num_stylechannels)#*2-1
         adjusted = self.get_lit_scene(z, frac, self.layers, self.units)[0]
         
-        if self.debug: 
-            adjusted = original
-            frac = 0
+        if self.reverse: 
+            frac = -frac
+            input_img = adjusted
+            output_img = original
             
         data = {'label': original, 'image': adjusted, 'inst': 0, 'feat': 0, 'path': f'bedroom_{self.num}', 'frac': frac}
         self.num += 1
@@ -261,4 +277,91 @@ class AlternateStyleGANDataset(Dataset):
             return output
         with nethook.Trace(self.model, f'{layername}.sconv.mconv.modulation', edit_output=change_light):
             return self.model(z)
+        
+class MaskedStyleGANDataset(Dataset): 
+    def __init__(self, 
+                 dset='bedroom', 
+                 reverse = False
+                ): 
+        self.model = load_seq_stylegan('bedroom', mconv='seq', truncation=0.90)
+        nethook.set_requires_grad(False, self.model)
+        self.light_layer = 'layer8'
+        self.light_unit = 265
+        self.reverse = reverse
+        self.num=0
+        self.segmodel, _ = load_segmenter()
+        
+        dim = 11
+        blur_kernel = (1/2**(dim))*torch.ones(dim, dim)
+        self.blur_kernel = blur_kernel[None, None]
+    def __len__(self):
+        return 5000
+
+    def __getitem__(self, index):
+        z = torch.randn(1, 512, device='cuda')
+            
+        original = self.model(z)[0]
+        input_img = original
+        
+        mask = self.get_mask(original)
+        frac = np.random.rand(1)
+        adjusted = self.get_lit_scene(z, mask, frac)[0]
+        output_img = adjusted
+        
+        if self.reverse: 
+            frac = -frac
+            input_img = adjusted
+            output_img = original
+         
+        #print('output size', output_img.shape)
+        #print('input size', input_img.shape)
+        data = {'label': input_img, 'image': output_img, 'inst': 0, 'feat': mask[None], 'path': f'bedroom_{self.num}', 'frac': frac}       
+        self.num+=1
+        return data
+    
+    def get_mask(self, img): 
+        with torch.no_grad():
+            _, lamps = self.segmodel.predict_single_class(img[None], 21)
+            seg = 1*lamps
+        mask = self.get_max_lamp(seg).float().cpu()    
+        #mask = (seg[0][0] == 21).float().cpu()
+        blurred = F.conv2d(mask[None][None], self.blur_kernel, padding=5).squeeze()
+        blurred[blurred!=0] = 1
+        return blurred
+        
+       
+    def get_max_lamp(self, seg): #gets mask of largest lamp
+        seg = seg.squeeze().int()#[:, 0]
+        #print('seg shape', seg.shape)
+#         seg[seg!=21] = 0 #lamp index in segmentation = 21
+#         seg[seg==21] = 1
+        
+        binary_lamps = np.uint8(seg.cpu())
+        lamp_centroids = []
+        max_lamps = [] 
+
+        nb_components, output, stats, centroids = cv2.connectedComponentsWithStats(binary_lamps, connectivity=8)
+        sizes = stats[:, -1]
+
+        if len(np.unique(output))<=1: #no lamps detected
+            return torch.Tensor(np.zeros([seg.shape[1], seg.shape[1]]))
+        max_label = 1
+        max_size = sizes[1]
+        for i in range(2, nb_components):
+            if sizes[i] > max_size:
+                max_label = i
+                max_size = sizes[i]
+
+        max_lamp = np.zeros(output.shape)
+        max_lamp[output == max_label] = 1
+        return torch.from_numpy(max_lamp)
+
+        
+    def get_lit_scene(self, z, mask, frac):
+        masked_model = make_masked_stylegan(self.model, z, mask, frac)
+        with torch.no_grad(): 
+            relit = masked_model(z)#[0]
+        return relit
+
+
 

@@ -23,7 +23,8 @@ dataset = data_loader.load_data()
 visualizer = Visualizer(opt)
 # create website
 
-generated = 'generated' if opt.generated else 'real'
+dataroot = opt.dataroot.replace("/", "_")
+generated = 'generated' if opt.generated else f'real_{dataroot}'
 web_dir = os.path.join(opt.results_dir, opt.name, '%s_%s_%s_modulations' % (opt.phase, opt.which_epoch, generated))
 webpage = html.HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.which_epoch))
 
@@ -70,7 +71,7 @@ for i, data in enumerate(dataset):
     
     for frac in scalars: 
         print(frac)
-        generated = model.inference(data['label'], data['inst'], data['image'], amount=frac)
+        generated = model.inference(data['label'], data['inst'], data['image'], amount=[frac])
         generated_ims.append((f'modulation: {frac}', util.tensor2im(generated.data[0])))
     visuals = OrderedDict(generated_ims)
     
