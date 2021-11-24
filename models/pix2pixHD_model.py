@@ -126,8 +126,11 @@ class Pix2PixHDModel(BaseModel):
         # get edges from instance map
         if not self.opt.no_instance:
             inst_map = inst_map.data.cuda()
-            edge_map = self.get_edges(inst_map)
-            input_label = torch.cat((input_label, edge_map), dim=1)
+            #edge_map = self.get_edges(inst_map)
+            #print('label map shape', label_map.shape)
+            #print('edge map shape', edge_map.shape)
+            #input_label = torch.cat((input_label, edge_map), dim=1)
+            input_label = torch.cat((input_label, inst_map), dim=1)
         with torch.no_grad(): 
             input_label = Variable(input_label)
 
@@ -165,7 +168,11 @@ class Pix2PixHDModel(BaseModel):
             input_concat = torch.cat((input_label, feat_map), dim=1)                        
         else:
             input_concat = input_label
-        fake_image = self.netG.forward(input_concat, amount)
+        
+        if self.opt.netG == "global":
+            fake_image = self.netG.forward(input_concat)
+        else: 
+            fake_image = self.netG.forward(input_concat, amount)
 
         # Fake Detection and Loss
         pred_fake_pool = self.discriminate(input_label, fake_image, use_pool=True)
@@ -221,8 +228,12 @@ class Pix2PixHDModel(BaseModel):
         else:
             #layer_trace = 'output_block'
             #with nethook.Trace(self.netG, layer_trace) as ret: 
-            with torch.no_grad():
-                fake_image = self.netG.forward(input_concat, amount)
+            if self.opt.netG == "global":
+                with torch.no_grad():
+                    fake_image = self.netG.forward(input_concat)
+            else: 
+                with torch.no_grad():
+                    fake_image = self.netG.forward(input_concat, amount)
             #print('INFERENCE layer trace output', ret.output[:, 0, :4, :4])
         
         

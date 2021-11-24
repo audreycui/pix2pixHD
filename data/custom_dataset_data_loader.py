@@ -315,7 +315,7 @@ class MaskedStyleGANDataset(Dataset):
          
         #print('output size', output_img.shape)
         #print('input size', input_img.shape)
-        data = {'label': input_img, 'image': output_img, 'inst': 0, 'feat': mask[None], 'path': f'bedroom_{self.num}', 'frac': frac}       
+        data = {'label': input_img, 'image': output_img, 'inst': mask[None], 'feat': 0, 'path': f'bedroom_{self.num}', 'frac': frac}       
         self.num+=1
         return data
     
@@ -325,17 +325,30 @@ class MaskedStyleGANDataset(Dataset):
             seg = 1*lamps
         mask = self.get_max_lamp(seg).float().cpu()    
         #mask = (seg[0][0] == 21).float().cpu()
-        blurred = F.conv2d(mask[None][None], self.blur_kernel, padding=5).squeeze()
-        blurred[blurred!=0] = 1
-        return blurred
+        #blurred = F.conv2d(mask[None][None], self.blur_kernel, padding=5).squeeze()
+        #blurred[blurred!=0] = 1
+        return mask
         
-       
-    def get_max_lamp(self, seg): #gets mask of largest lamp
-        seg = seg.squeeze().int()#[:, 0]
-        #print('seg shape', seg.shape)
-#         seg[seg!=21] = 0 #lamp index in segmentation = 21
-#         seg[seg==21] = 1
-        
+    def create_circular_mask(self, h, w, center=None, radius=None):
+        # from https://stackoverflow.com/questions/44865023/how-can-i-create-a-circular-mask-for-a-numpy-array
+
+        if center is None: # use the middle of the image
+            center = (int(w/2), int(h/2))
+        if radius is None: # use the smallest distance between the center and image walls
+            radius = min(center[0], center[1], w-center[0], h-center[1])
+
+        Y, X = np.ogrid[:h, :w]
+        dist_from_center = np.sqrt((X - center[0])**2 + (Y-center[1])**2)
+
+        mask = 1-(dist_from_center/radius)
+        mask[mask<0] = 0
+        return mask
+    
+    def get_max_lamp(self, seg): #gets x,y coordinates of largest lamp
+    
+        seg = seg.squeeze().int()
+
+
         binary_lamps = np.uint8(seg.cpu())
         lamp_centroids = []
         max_lamps = [] 
@@ -344,17 +357,49 @@ class MaskedStyleGANDataset(Dataset):
         sizes = stats[:, -1]
 
         if len(np.unique(output))<=1: #no lamps detected
-            return torch.Tensor(np.zeros([seg.shape[1], seg.shape[1]]))
+            a = torch.Tensor(np.zeros([seg.shape[1], seg.shape[1]]))
+            return a        
+
         max_label = 1
         max_size = sizes[1]
+        centroid = centroids[1]
         for i in range(2, nb_components):
             if sizes[i] > max_size:
                 max_label = i
                 max_size = sizes[i]
+                centroid = centroids[i]
 
-        max_lamp = np.zeros(output.shape)
-        max_lamp[output == max_label] = 1
-        return torch.from_numpy(max_lamp)
+        radius = max(stats[max_label, 2], stats[max_label, 3])
+        mask = self.create_circular_mask(seg.shape[1], seg.shape[1], centroid, radius*1.5)
+
+        return torch.from_numpy(mask)
+    
+    
+#     def get_max_lamp(self, seg): #gets mask of largest lamp
+#         seg = seg.squeeze().int()#[:, 0]
+#         #print('seg shape', seg.shape)
+# #         seg[seg!=21] = 0 #lamp index in segmentation = 21
+# #         seg[seg==21] = 1
+        
+#         binary_lamps = np.uint8(seg.cpu())
+#         lamp_centroids = []
+#         max_lamps = [] 
+
+#         nb_components, output, stats, centroids = cv2.connectedComponentsWithStats(binary_lamps, connectivity=8)
+#         sizes = stats[:, -1]
+
+#         if len(np.unique(output))<=1: #no lamps detected
+#             return torch.Tensor(np.zeros([seg.shape[1], seg.shape[1]]))
+#         max_label = 1
+#         max_size = sizes[1]
+#         for i in range(2, nb_components):
+#             if sizes[i] > max_size:
+#                 max_label = i
+#                 max_size = sizes[i]
+
+#         max_lamp = np.zeros(output.shape)
+#         max_lamp[output == max_label] = 1
+#         return torch.from_numpy(max_lamp)
 
         
     def get_lit_scene(self, z, mask, frac):
